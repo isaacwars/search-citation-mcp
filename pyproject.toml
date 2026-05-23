@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "search-citation-mcp"
+version = "1.0.0"
+authors = [{ name = "isaacwars" }]
+description = "Academic paper search and IEEE citation engine MCP server"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp>=1.2.0",
+    "rapidfuzz>=3.0.0",
+    "requests>=2.28.0",
+    "trafilatura>=1.5.0",
+    "curl_cffi>=0.7.0",
+    "python-dotenv>=1.0.0",
+    "bibtexparser>=2.0.0b7",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/isaacwars/search-citation-mcp"
+Issues = "https://github.com/isaacwars/search-citation-mcp/issues"
+
+[project.scripts]
+search-citation = "search_citation_mcp.cli:main"
+search-citation-mcp = "search_citation_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/search_citation_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
