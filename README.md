@@ -65,7 +65,7 @@ Add to `opencode.json`:
 ## CLI Usage
 
 ```bash
-search-citation search "photovoltaic harmonics" -n 5
+search-citation search "photovoltaic" -n 5
 search-citation add --doi 10.1016/j.rser.2015.08.042
 search-citation cite --doi 10.1016/j.rser.2015.08.042
 search-citation related 10.1016/j.rser.2015.08.042 -n 5
