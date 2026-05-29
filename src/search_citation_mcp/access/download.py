@@ -8,18 +8,24 @@ Cadena de descarga free-first:
 5. Sci-Hub (opcional, configurable via SCIHUB_ENABLED)
 """
 
+import logging
 import os
 import re
-import mimetypes
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
 from curl_cffi import requests as curl_requests
 
+log = logging.getLogger("search-citation")
+
 SCIHUB_MIRRORS = os.getenv(
     "SCIHUB_MIRRORS", "sci-hub.ru,sci-hub.st,sci-hub.se"
 ).split(",")
+
+IMPERSONATE_BROWSER = os.getenv("IMPERSONATE_BROWSER", "chrome131")
+MAX_PDF_SIZE = 100 * 1024 * 1024  # 100 MB
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +111,22 @@ def download_paper(doi: str, output_dir: str = "./papers",
 # Download helpers
 # ---------------------------------------------------------------------------
 
+def _write_file(dest: Path, content: bytes) -> Path:
+    """Escribe atómicamente: temp file + rename para evitar archivos truncados."""
+    fd, tmp_path = tempfile.mkstemp(dir=dest.parent, prefix=".download_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        tmp = Path(tmp_path)
+        tmp.replace(dest)
+    except Exception:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    return dest
+
 def _try_download(url: str, dest: Path, source: str,
                   session: curl_requests.Session | None = None) -> dict:
     """Intenta descargar un PDF usando browser impersonation."""
@@ -125,7 +147,7 @@ def _try_download(url: str, dest: Path, source: str,
                 ),
                 "Accept": "application/pdf,text/html,*/*",
             },
-            impersonate="chrome131",
+            impersonate=IMPERSONATE_BROWSER,
         )
         if resp.status_code != 200:
             return {"success": False, "error": f"HTTP {resp.status_code}"}
@@ -134,7 +156,9 @@ def _try_download(url: str, dest: Path, source: str,
         content_type = resp.headers.get("Content-Type", "").lower()
 
         if content[:5] == b"%PDF-":
-            dest.write_bytes(content)
+            if len(content) > MAX_PDF_SIZE:
+                return {"success": False, "error": f"PDF excede límite de {MAX_PDF_SIZE // (1024*1024)} MB"}
+            _write_file(dest, content)
             return {
                 "success": True, "path": str(dest), "source": source,
                 "size": len(content),
@@ -147,6 +171,8 @@ def _try_download(url: str, dest: Path, source: str,
                 if not redirect_url.startswith("http"):
                     from urllib.parse import urljoin
                     redirect_url = urljoin(url, redirect_url)
+                if not _is_allowed_url(redirect_url):
+                    return {"success": False, "error": f"Esquema de URL no permitido en redirect"}
                 resp2 = session.get(
                     redirect_url, timeout=30, allow_redirects=True,
                     headers={
@@ -156,10 +182,12 @@ def _try_download(url: str, dest: Path, source: str,
                         ),
                         "Accept": "application/pdf,text/html,*/*",
                     },
-                    impersonate="chrome131",
+                    impersonate=IMPERSONATE_BROWSER,
                 )
                 if resp2.status_code == 200 and resp2.content[:5] == b"%PDF-":
-                    dest.write_bytes(resp2.content)
+                    if len(resp2.content) > MAX_PDF_SIZE:
+                        return {"success": False, "error": f"PDF excede límite de {MAX_PDF_SIZE // (1024*1024)} MB"}
+                    _write_file(dest, resp2.content)
                     return {
                         "success": True, "path": str(dest),
                         "source": source, "size": len(resp2.content),
@@ -219,7 +247,7 @@ def _try_scihub(doi: str, dest: Path,
                     ),
                     "Accept": "text/html,application/pdf,*/*",
                 },
-                impersonate="chrome131",
+                impersonate=IMPERSONATE_BROWSER,
             )
             if resp.status_code != 200:
                 continue
@@ -234,17 +262,18 @@ def _try_scihub(doi: str, dest: Path,
                         "User-Agent": "Mozilla/5.0",
                         "Accept": "application/pdf,*/*",
                     },
-                    impersonate="chrome131",
+                    impersonate=IMPERSONATE_BROWSER,
                 )
                 if (pdf_resp.status_code == 200
                         and pdf_resp.content[:5] == b"%PDF-"):
-                    dest.write_bytes(pdf_resp.content)
+                    _write_file(dest, pdf_resp.content)
                     return {
                         "success": True, "path": str(dest),
                         "source": f"scihub:{mirror}",
                         "size": len(pdf_resp.content),
                     }
-        except Exception:
+        except Exception as e:
+            log.debug(f"Sci-Hub mirror {mirror} failed: {e}")
             continue
     return {"success": False, "error": "Sci-Hub: sin acceso en ningún mirror"}
 
@@ -267,36 +296,3 @@ def _extract_scihub_pdf(html: str, mirror: str) -> str:
                 return f"https:{url}"
             return url
     return ""
-
-
-# ---------------------------------------------------------------------------
-# PDF discovery (no download)
-# ---------------------------------------------------------------------------
-
-def find_pdf_urls(doi: str) -> list:
-    """Encuentra URLs de PDF gratuitos, sin descargar."""
-    email = os.getenv("UNPAYWALL_EMAIL", "")
-    if not email:
-        return []
-    urls = []
-    try:
-        resp = requests.get(
-            f"https://api.unpaywall.org/v2/{doi}",
-            params={"email": email},
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            for loc in data.get("oa_locations", [])[:10]:
-                url = loc.get("url_for_pdf") or loc.get("url", "")
-                repo = (loc.get("host_type", "")
-                        or loc.get("repository_institution", ""))
-                if url:
-                    urls.append({
-                        "url": url,
-                        "source": f"unpaywall:{repo}",
-                        "is_oa": True,
-                    })
-    except Exception:
-        pass
-    return urls

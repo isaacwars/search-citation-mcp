@@ -24,29 +24,39 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from . import search as search_module
-from .generate import from_doi, from_crossref_data, from_fields, validate_fields
+from .generate import from_doi, from_crossref_data, from_fields
 from .bibliography import append_entry
-from .apis import openalex, crossref, semanticscholar
+from .apis import openalex, semanticscholar
 
 
-def cmd_search(args):
-    yf, yt = None, None
-    if args.year:
-        parts = args.year.split("-")
-        if len(parts) == 2:
-            if parts[0]:
-                yf = int(parts[0])
-            if parts[1]:
-                yt = int(parts[1])
-    results = search_module.search_papers(
-        args.query, count=args.n,
-        year_from=yf, year_to=yt,
-        exclude_preprints=args.no_preprints,
-    )
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+def cmd_search(args: argparse.Namespace):
+    try:
+        yf, yt = None, None
+        if args.year:
+            parts = args.year.split("-")
+            if len(parts) == 2:
+                if parts[0]:
+                    try:
+                        yf = int(parts[0])
+                    except ValueError:
+                        pass
+                if parts[1]:
+                    try:
+                        yt = int(parts[1])
+                    except ValueError:
+                        pass
+        results = search_module.search_papers(
+            args.query, count=args.n,
+            year_from=yf, year_to=yt,
+            exclude_preprints=args.no_preprints,
+        )
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
-def cmd_add(args):
+def cmd_add(args: argparse.Namespace):
     if args.doi:
         result = search_module.add_from_doi(args.doi)
         if "error" in result:
@@ -63,9 +73,7 @@ def cmd_add(args):
                 print(f"  - {w}")
     elif args.type:
         raw = {k: v for k, v in vars(args).items()
-               if v is not None and k not in ("func", "type", "doi", "command")}
-        if "fields" in raw:
-            raw.update(dict(kv.split("=", 1) for kv in raw.pop("fields")))
+               if v is not None and k not in ("func", "type", "doi", "command", "fields")}
         entry = from_fields(args.type, raw)
         try:
             key = append_entry(entry)
@@ -79,7 +87,7 @@ def cmd_add(args):
         sys.exit(1)
 
 
-def cmd_cite(args):
+def cmd_cite(args: argparse.Namespace):
     if args.doi:
         enriched = search_module.enrich_paper(args.doi)
         if not enriched:
@@ -92,9 +100,11 @@ def cmd_cite(args):
             if source == "semanticscholar":
                 entry = from_fields("article", {
                     "author": " and ".join(
-                        f"{a.split()[-1]}, {a.split()[0][0]}."
-                        if a and " " in a else a
+                        f"{parts[-1]}, {parts[0][0]}."
+                        if " " in a else a
                         for a in enriched.get("authors", [])
+                        if a and a.strip()
+                        for parts in [a.split()]
                     ),
                     "title": enriched.get("title", "").strip().rstrip("."),
                     "journal": enriched.get("journal", ""),
@@ -120,20 +130,28 @@ def cmd_cite(args):
         sys.exit(1)
 
 
-def cmd_related(args):
-    results = search_module.find_related_papers(
-        args.doi, count=args.n, exclude_preprints=args.no_preprints,
-    )
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+def cmd_related(args: argparse.Namespace):
+    try:
+        results = search_module.find_related_papers(
+            args.doi, count=args.n, exclude_preprints=args.no_preprints,
+        )
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
-def cmd_detect(args):
-    from .detect import detect_input
-    result = detect_input(args.text)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+def cmd_detect(args: argparse.Namespace):
+    try:
+        from .detect import detect_input
+        result = detect_input(args.text)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
-def cmd_validate(args):
+def cmd_validate(args: argparse.Namespace):
     from .report import generate_validation_report
     try:
         report_path = generate_validation_report(args.bib_path)
@@ -143,7 +161,7 @@ def cmd_validate(args):
         sys.exit(1)
 
 
-def cmd_fix_bib(args):
+def cmd_fix_bib(args: argparse.Namespace):
     from .fixer import fix_bib_file
     try:
         result = fix_bib_file(args.bib_path, dry_run=args.dry_run)
@@ -159,40 +177,48 @@ def cmd_fix_bib(args):
         sys.exit(1)
 
 
-def cmd_cache(args):
-    results = search_module.list_cached()
-    if not results:
-        print("No hay búsquedas en caché.")
-        return
-    for c in results:
-        print(f"  \"{c['query']}\" — {c['count']} papers")
+def cmd_cache(args: argparse.Namespace):
+    try:
+        results = search_module.list_cached()
+        if not results:
+            print("No hay búsquedas en caché.")
+            return
+        for c in results:
+            print(f"  \"{c['query']}\" — {c['count']} papers")
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
-def cmd_download(args):
-    from .access.download import download_paper as _download
+def cmd_download(args: argparse.Namespace):
+    try:
+        from .access.download import download_paper as _download
 
-    oa_url = ""
-    s2_pdf_url = ""
-    arxiv_id = ""
+        oa_url = ""
+        s2_pdf_url = ""
+        arxiv_id = ""
 
-    oa = openalex.fetch_by_doi(args.doi)
-    if oa:
-        oa_url = oa.get("oa_url", "")
-        arxiv_id = oa.get("raw", {}).get("ids", {}).get("arxiv", "")
+        oa = openalex.fetch_by_doi(args.doi)
+        if oa:
+            oa_url = oa.get("oa_url", "")
+            arxiv_id = oa.get("raw", {}).get("ids", {}).get("arxiv", "")
 
-    s2 = semanticscholar.fetch_by_doi(args.doi)
-    if s2:
-        s2_pdf_url = s2.get("oa_url", "")
-        if not arxiv_id:
-            arxiv_id = s2.get("arxiv_id", "")
+        s2 = semanticscholar.fetch_by_doi(args.doi)
+        if s2:
+            s2_pdf_url = s2.get("oa_url", "")
+            if not arxiv_id:
+                arxiv_id = s2.get("arxiv_id", "")
 
-    result = _download(args.doi, output_dir=args.output_dir,
-                       oa_url=oa_url, s2_pdf_url=s2_pdf_url, arxiv_id=arxiv_id)
-    if result["success"]:
-        size_mb = result.get("size", 0) / (1024 * 1024)
-        print(f"PDF descargado: {result['path']} ({size_mb:.1f} MB, fuente: {result['source']})")
-    else:
-        print(f"Error: {result.get('error', 'No se encontró PDF gratuito.')}")
+        result = _download(args.doi, output_dir=args.output_dir,
+                           oa_url=oa_url, s2_pdf_url=s2_pdf_url, arxiv_id=arxiv_id)
+        if result["success"]:
+            size_mb = result.get("size", 0) / (1024 * 1024)
+            print(f"PDF descargado: {result['path']} ({size_mb:.1f} MB, fuente: {result['source']})")
+        else:
+            print(f"Error: {result.get('error', 'No se encontró PDF gratuito.')}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
         sys.exit(1)
 
 
@@ -262,7 +288,7 @@ Ejemplos:
     p_cite.add_argument("--pages")
     p_cite.add_argument("--month")
     p_cite.add_argument("--url")
-    p_cite.add_argument("--doi_field", dest="doi_field")
+    p_cite.add_argument("--doi_field", dest="doi")
     p_cite.add_argument("--institution")
     p_cite.add_argument("--school")
     p_cite.add_argument("--publisher")
@@ -310,7 +336,11 @@ Ejemplos:
         "download": cmd_download,
         "cache": cmd_cache,
     }
-    cmd_map[args.command](args)
+    try:
+        cmd_map[args.command](args)
+    except KeyError:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

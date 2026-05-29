@@ -86,7 +86,9 @@ def from_doi(doi: str, openalex_data: dict) -> str:
             name = a.get("author", {}).get("display_name", "")
             if name and " " in name:
                 parts = name.rsplit(" ", 1)
-                author_list.append(f"{parts[1]}, {parts[0][0]}.")
+                first_parts = parts[0].split()
+                initials = ". ".join(f"{fp[0]}." for fp in first_parts if fp)
+                author_list.append(f"{parts[1]}, {initials}")
             elif name:
                 author_list.append(name)
         data["author"] = " and ".join(author_list)
@@ -122,7 +124,7 @@ def from_doi(doi: str, openalex_data: dict) -> str:
     if pub_year:
         data["year"] = str(pub_year)
 
-    pub_date = openalex_data.get("publication_date", "")
+    pub_date = openalex_data.get("publication_date") or ""
     if pub_date:
         parts = pub_date.split("-")
         if len(parts) >= 2:

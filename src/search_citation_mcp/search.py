@@ -1,14 +1,17 @@
 """Pipeline de búsqueda académica: OpenAlex descubre, cache read-first."""
 
 import json
+import logging
 import os
 import re
-import time
 from datetime import datetime
+
+log = logging.getLogger("search-citation")
 from pathlib import Path
 
 from .apis import openalex, crossref, semanticscholar
 from .access import ezproxy
+from ._doi import normalize_doi
 
 CACHE_DIR = Path(
     os.getenv("SEARCH_CACHE_DIR", "/tmp/search_cache")
@@ -23,11 +26,11 @@ _EZPROXY_ENABLED = os.getenv("EZPROXY_HOST", "").strip() != ""
 
 def search_papers(query: str, count: int = 10, year_from: int = None,
                   year_to: int = None, exclude_preprints: bool = False) -> list:
-    """Busca papers combinando OpenAlex + Semantic Scholar en paralelo.
+    """Busca papers combinando OpenAlex + Crossref + Semantic Scholar en paralelo.
 
     Pipeline:
     1. Cache read-first (evita repetir llamadas)
-    2. OpenAlex + S2 en paralelo (si hay SEMANTIC_SCHOLAR_API_KEY)
+    2. OpenAlex (siempre) + Crossref (siempre) + S2 (si API key) en paralelo
     3. Dedup por DOI
     4. Enriquecer con EZProxy URL (si EZPROXY_HOST está configurado)
     5. Cache write
@@ -40,35 +43,35 @@ def search_papers(query: str, count: int = 10, year_from: int = None,
     seen_dois = set()
 
     s2_enabled = bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY"))
+    n_sources = 3 if s2_enabled else 2
 
-    if s2_enabled:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = {
-                executor.submit(
-                    openalex.search, query, count, year_from, year_to,
-                ): "openalex",
-                executor.submit(
-                    semanticscholar.search, query, count, year_from, year_to,
-                ): "s2",
-            }
-            for future in as_completed(futures):
-                source = futures[future]
-                try:
-                    api_results = future.result()
-                except Exception:
-                    continue
-                _merge_results(api_results, source, seen_dois,
-                               exclude_preprints, results)
-    else:
-        try:
-            api_results = openalex.search(query, count, year_from, year_to)
-        except Exception:
-            api_results = []
-        _merge_results(api_results, "openalex", seen_dois,
-                       exclude_preprints, results)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=n_sources) as executor:
+        futures = {
+            executor.submit(
+                openalex.search, query, count, year_from, year_to,
+            ): "openalex",
+            executor.submit(
+                crossref.search, query, count, year_from, year_to,
+            ): "crossref",
+        }
+        if s2_enabled:
+            futures[executor.submit(
+                semanticscholar.search, query, count, year_from, year_to,
+            )] = "s2"
 
-    _save_cache(query, results)
+        for future in as_completed(futures):
+            source = futures[future]
+            try:
+                api_results = future.result()
+            except Exception as e:
+                log.warning(f"Error fetching from {source}: {e}")
+                continue
+            _merge_results(api_results, source, seen_dois,
+                           exclude_preprints, results)
+
+    if results:
+        _save_cache(query, results)
     return results
 
 
@@ -76,7 +79,7 @@ def _merge_results(api_results: list, source: str, seen_dois: set,
                    exclude_preprints: bool, results: list):
     """Dedup y enriquecer resultados de una API."""
     for r in api_results:
-        doi = r.get("doi", "").lower()
+        doi = (r.get("doi") or "").lower()
 
         if exclude_preprints and r.get("is_preprint"):
             continue
@@ -175,10 +178,12 @@ def add_from_doi(doi: str, bib_path: str = "") -> dict:
         if s2_data and s2_data.get("doi"):
             authors_raw = s2_data.get("raw", {}).get("authors", [])
             author_str = " and ".join(
-                f"{a['name'].split()[-1]}, {a['name'].split()[0][0]}."
-                if a.get("name") and " " in a.get("name", "")
+                f"{name_parts[-1]}, {name_parts[0][0]}."
+                if " " in (a.get("name") or "")
                 else a.get("name", "")
                 for a in authors_raw
+                if a.get("name", "").strip()
+                for name_parts in [a.get("name", "").split()]
             )
             entry = from_fields("article", {
                 "author": author_str,
@@ -253,9 +258,7 @@ def find_related_papers(doi: str, count: int = 5,
                     for r in extra.get("results", []):
                         loc = r.get("primary_location", {}) or {}
                         src = loc.get("source", {}) or {}
-                        paper_doi = (r.get("doi") or "").replace(
-                            "https://doi.org/", "",
-                        )
+                        paper_doi = normalize_doi(r.get("doi") or "")
                         if paper_doi and paper_doi.lower() not in seen:
                             seen.add(paper_doi.lower())
                             related.append({
@@ -269,7 +272,8 @@ def find_related_papers(doi: str, count: int = 5,
                                 "cited_by": r.get("cited_by_count", 0),
                                 "abstract": "",
                             })
-                except Exception:
+                except Exception as e:
+                    log.warning(f"Error fetching extra citations from OpenAlex: {e}")
                     pass
 
     return related[:count]
@@ -279,33 +283,43 @@ def find_related_papers(doi: str, count: int = 5,
 
 
 def _save_cache(query: str, results: list):
-    ts = int(datetime.now().timestamp() * 1000)
-    safe_query = "".join(c if c.isalnum() else "_" for c in query[:40])
-    cache_file = CACHE_DIR / f"{safe_query}_{ts}.json"
-    entry = {
-        "timestamp": ts,
-        "query": query,
-        "results": [
-            {k: v for k, v in r.items() if k not in ("raw", "raw_oa")}
-            for r in results
-        ],
-    }
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(entry, f, ensure_ascii=False, indent=2)
-    _clean_old_caches()
+    try:
+        ts = int(datetime.now().timestamp() * 1000)
+        safe_query = "".join(c if c.isalnum() else "_" for c in query[:40])
+        cache_file = CACHE_DIR / f"{safe_query}_{ts}.json"
+        entry = {
+            "timestamp": ts,
+            "query": query,
+            "results": [
+                {k: v for k, v in r.items() if k not in ("raw", "raw_oa")}
+                for r in results
+            ],
+        }
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(entry, f, ensure_ascii=False, indent=2)
+        _clean_old_caches()
+    except Exception:
+        pass
 
 
-def _clean_old_caches(max_age_seconds: int = 3600):
+def _clean_old_caches(max_age_seconds: int = 3600, max_entries: int = 1000):
     now = datetime.now().timestamp()
-    for f in CACHE_DIR.iterdir():
+    files = sorted(CACHE_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime)
+    for f in files:
         if f.suffix == ".json":
             try:
                 parts = f.stem.rsplit("_", 1)
                 ts = int(parts[-1]) / 1000
                 if now - ts > max_age_seconds:
-                    f.unlink()
-            except (ValueError, IndexError):
+                    f.unlink(missing_ok=True)
+            except (ValueError, IndexError, OSError):
                 pass
+    remaining = sorted(CACHE_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime)
+    for f in remaining[:-max_entries]:
+        try:
+            f.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def find_cached(query: str = "", doi: str = "", author: str = "",
@@ -315,7 +329,8 @@ def find_cached(query: str = "", doi: str = "", author: str = "",
         try:
             with open(f, encoding="utf-8") as fh:
                 data = json.load(fh)
-        except Exception:
+        except Exception as e:
+            log.debug(f"Error reading cache file {f}: {e}")
             continue
         if query and data.get("query", "").lower() == query.lower():
             return data.get("results", [])
@@ -351,6 +366,7 @@ def list_cached(limit: int = 5) -> list:
                 "count": len(data.get("results", [])),
                 "timestamp": data.get("timestamp", 0),
             })
-        except Exception:
+        except Exception as e:
+            log.debug(f"Error reading cache file {f}: {e}")
             continue
     return result

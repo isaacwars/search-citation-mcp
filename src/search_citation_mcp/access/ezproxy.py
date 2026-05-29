@@ -53,12 +53,15 @@ def to_ezproxy(doi: str = "", url: str = "") -> str:
         if any(oa in domain for oa in _OA_DOMAINS):
             return ""
 
-        if f"{host}" in url:
+        if host in url:
             return url
 
         for key, template in publisher_map.items():
             if key in domain:
-                return url.replace(domain, template.format(host=host))
+                proxy_domain = template.format(host=host)
+                return url.replace(
+                    domain, proxy_domain, 1
+                ) if domain in parsed.netloc else f"https://{proxy_domain}{parsed.path}"
 
     if doi and not url:
         return f"https://doi.{host}/{doi}"

@@ -39,6 +39,8 @@ def _extract_bibtex_field(entry: str, field: str) -> str | None:
     if not m:
         return None
     start = m.end()
+    while start < len(entry) and entry[start] in (' ', '\t'):
+        start += 1
     if start >= len(entry) or entry[start] != '{':
         return None
     depth = 0
@@ -64,6 +66,9 @@ def strip_braces(text: str) -> str:
 
 def check_bib_entry(entry_text: str) -> tuple:
     """Valida una entrada .bib. Retorna (Status, lista de issues)."""
+    if len(entry_text) > 10_000:
+        return Status.ERROR, ["La entrada excede el límite máximo de 10KB (posible error de input)."]
+
     issues = []
 
     if not entry_text.strip().startswith("@"):
@@ -129,7 +134,10 @@ def fuzzy_verify(title: str, author: str, year, api_title: str, api_author: str 
 
     year_match = True
     if year and api_year:
-        year_match = abs(int(year) - int(api_year)) <= 1
+        try:
+            year_match = abs(int(year) - int(api_year)) <= 1
+        except (ValueError, TypeError):
+            year_match = True
 
     overall = (title_score * 0.6 + author_score * 0.3 + (100 if year_match else 0) * 0.1)
 

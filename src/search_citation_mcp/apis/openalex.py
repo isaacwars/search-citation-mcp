@@ -1,10 +1,12 @@
 """OpenAlex REST API wrapper."""
 
 import os
-import urllib.parse
 import time
+import urllib.parse
 
 import requests
+
+from .._doi import normalize_doi
 
 BASE_URL = "https://api.openalex.org"
 
@@ -24,14 +26,17 @@ def _get_params(extra=None):
 
 def _get_json(path: str, params: dict = None) -> dict:
     """GET request a la API de OpenAlex, retorna JSON parseado."""
-    resp = requests.get(
-        f"{BASE_URL}{path}",
-        params=params or {},
-        timeout=15,
-    )
-    if resp.status_code != 200:
+    try:
+        resp = requests.get(
+            f"{BASE_URL}{path}",
+            params=params or {},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return {}
+        return resp.json()
+    except requests.RequestException:
         return {}
-    return resp.json()
 
 
 def search(query: str, per_page: int = 10, year_from: int = None, year_to: int = None) -> list:
@@ -51,7 +56,10 @@ def search(query: str, per_page: int = 10, year_from: int = None, year_to: int =
     if filters:
         params["filter"] = ",".join(filters)
 
-    resp = requests.get(url, params=params, timeout=15)
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except requests.RequestException:
+        return []
     if resp.status_code != 200:
         return []
 
@@ -74,7 +82,7 @@ def search(query: str, per_page: int = 10, year_from: int = None, year_to: int =
 
         out.append({
             "title": r.get("title", ""),
-            "doi": (r.get("doi") or "").replace("https://doi.org/", ""),
+            "doi": normalize_doi(r.get("doi") or ""),
             "authors": authors,
             "year": r.get("publication_year"),
             "journal": src.get("display_name", ""),
@@ -98,7 +106,10 @@ def fetch_by_doi(doi: str) -> dict:
     url = f"{BASE_URL}/works/doi:{doi}"
     params = _get_params()
 
-    resp = requests.get(url, params=params, timeout=15)
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except requests.RequestException:
+        return {}
     if resp.status_code != 200:
         return {}
 
@@ -123,7 +134,7 @@ def fetch_by_doi(doi: str) -> dict:
 
     return {
         "title": r.get("title", ""),
-        "doi": (r.get("doi") or "").replace("https://doi.org/", ""),
+        "doi": normalize_doi(r.get("doi") or ""),
         "authors": authors,
         "year": r.get("publication_year"),
         "journal": src.get("display_name", ""),

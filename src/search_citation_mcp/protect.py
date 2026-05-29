@@ -1,12 +1,12 @@
 import re
 
 ACRONYMS = sorted([
-    "AC", "ADC", "AI", "AOPDS", "CEC", "CFE", "CNE", "CRE", "DC",
+    "AC", "ADC", "AI", "AOPDS", "BUAP", "CEC", "CFE", "CNE", "CRE", "DC",
     "DOF", "DSP", "DTR", "FPGA", "IGBT", "IEA", "IEC", "IEEE",
-    "IET", "INDUSCON", "IPN", "LAPEM", "LTE", "MATLAB", "MOSFET",
-    "MPPT", "NASA", "NOM", "PLADESE", "PLOS", "PLC", "PV",
+    "IET", "ICHVEPS", "INDUSCON", "IPN", "LAPEM", "LTE", "MATLAB",
+    "MOSFET", "MPPT", "NASA", "NOM", "PLADESE", "PLOS", "PLC", "PV",
     "PVC", "PVSyst", "SCADA", "SEDE", "SENER", "SFVI", "Simulink",
-    "SSE", "THD", "UNAM", "WCPEC", "ICHVEPS",
+    "SSE", "THD", "UNAM", "WCPEC",
 ], key=len, reverse=True)
 
 _ACRONYM_PATTERN = '|'.join(re.escape(a) for a in ACRONYMS)

@@ -33,7 +33,10 @@ def search(query: str, per_page: int = 10, year_from: int = None, year_to: int =
     elif year_to:
         params["filter"] = f"until-pub-date:{year_to}"
 
-    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+    except requests.RequestException:
+        return []
     if resp.status_code != 200:
         return []
 
@@ -56,7 +59,10 @@ def fetch_by_doi(doi: str) -> dict:
     params = {"mailto": _get_mailto()}
     headers = {"User-Agent": f"CitationEngine/1.0 (mailto:{_get_mailto()})"}
 
-    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+    except requests.RequestException:
+        return {}
     if resp.status_code != 200:
         return {}
 
@@ -92,15 +98,16 @@ def _normalize_work(r: dict) -> dict:
 
     doi = r.get("DOI", "")
 
-    pub_date_parts = (
+    pub_raw = (
         r.get("published-print", {})
         or r.get("published-online", {})
         or r.get("issued", {})
         or {}
-    ).get("date-parts", [[None]])[0]
+    ).get("date-parts")
+    pub_date_parts = pub_raw[0] if pub_raw else [None]
 
-    year = pub_date_parts[0] if pub_date_parts and len(pub_date_parts) > 0 else None
-    month = pub_date_parts[1] if pub_date_parts and len(pub_date_parts) > 1 else None
+    year = pub_date_parts[0] if len(pub_date_parts) > 0 else None
+    month = pub_date_parts[1] if len(pub_date_parts) > 1 else None
 
     abstract_text = r.get("abstract", "")
     if abstract_text and abstract_text.startswith("<"):
@@ -133,10 +140,10 @@ def _normalize_work(r: dict) -> dict:
         "oa_status": "",
         "oa_url": "",
         "url": landing_url,
-        "publication_date": f"{year}-{month:02d}" if year and month else str(year or ""),
+        "publication_date": f"{year}-{month:02d}" if year is not None and month is not None else str(year or ""),
         "type": _map_type(r.get("type", "")),
         "publisher": r.get("publisher", ""),
-        "issn": (r.get("ISSN", [None])[0] if r.get("ISSN") else ""),
+        "issn": (r.get("ISSN") or [None])[0] if (r.get("ISSN") or [None])[0] else "",
         "raw": r,
     }
 

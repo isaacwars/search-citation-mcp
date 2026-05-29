@@ -39,12 +39,15 @@ def search(query: str, count: int = 10, year_from: int = None, year_to: int = No
     elif year_to:
         params["year"] = f"-{year_to}"
 
-    resp = requests.get(
-        f"{BASE_URL}/paper/search",
-        params=params,
-        headers=_headers(),
-        timeout=15,
-    )
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/paper/search",
+            params=params,
+            headers=_headers(),
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
     if resp.status_code != 200:
         return []
 
@@ -86,12 +89,15 @@ def search(query: str, count: int = 10, year_from: int = None, year_to: int = No
 
 def fetch_by_doi(doi: str) -> dict:
     """Obtiene metadata completa de un paper por DOI desde S2."""
-    resp = requests.get(
-        f"{BASE_URL}/paper/DOI:{doi}",
-        params={"fields": ",".join(PAPER_FIELDS)},
-        headers=_headers(),
-        timeout=15,
-    )
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/paper/DOI:{doi}",
+            params={"fields": ",".join(PAPER_FIELDS)},
+            headers=_headers(),
+            timeout=15,
+        )
+    except requests.RequestException:
+        return {}
     if resp.status_code != 200:
         return {}
 
@@ -129,15 +135,18 @@ def fetch_by_doi(doi: str) -> dict:
 
 def fetch_recommendations(paper_id: str, count: int = 5) -> list:
     """Obtiene papers recomendados relacionados por similitud semántica."""
-    resp = requests.get(
-        f"{BASE_URL}/paper/{paper_id}/recommendations",
-        params={
-            "limit": min(count, 20),
-            "fields": ",".join(SEARCH_FIELDS),
-        },
-        headers=_headers(),
-        timeout=15,
-    )
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/paper/{paper_id}/recommendations",
+            params={
+                "limit": min(count, 20),
+                "fields": ",".join(SEARCH_FIELDS),
+            },
+            headers=_headers(),
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
     if resp.status_code != 200:
         return []
 

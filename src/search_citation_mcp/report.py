@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from .validate import Status, check_bib_entry
+from .bibliography import _split_entries
 
 
 def generate_validation_report(bib_path: str) -> str:
@@ -14,7 +15,10 @@ def generate_validation_report(bib_path: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"No se encontró: {bib_path}")
 
-    content = path.read_text(encoding="utf-8")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        content = path.read_text(encoding="latin-1")
     entries = _split_entries(content)
 
     results = []
@@ -72,23 +76,8 @@ def generate_validation_report(bib_path: str) -> str:
 
     report_text = "\n".join(lines)
     report_path = path.with_suffix(".report.md")
-    report_path.write_text(report_text, encoding="utf-8")
+    try:
+        report_path.write_text(report_text, encoding="utf-8")
+    except OSError as e:
+        raise OSError(f"No se pudo escribir el reporte: {e}")
     return str(report_path)
-
-
-def _split_entries(content: str) -> list:
-    """Divide un archivo .bib en entradas individuales."""
-    entries = []
-    current = []
-    depth = 0
-    for line in content.split("\n"):
-        if line.strip().startswith("@") and depth == 0:
-            if current:
-                entries.append("\n".join(current))
-            current = [line]
-        else:
-            current.append(line)
-        depth += line.count("{") - line.count("}")
-    if current:
-        entries.append("\n".join(current))
-    return entries

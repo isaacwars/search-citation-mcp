@@ -1,7 +1,6 @@
 """Search & Citation MCP Server — 9 tools para búsqueda y citación IEEE."""
 
 import json
-import os
 import sys
 import logging
 from pathlib import Path
@@ -69,17 +68,20 @@ def search_papers(query: str, n: int = 10, year_from: int = 0,
         year_to: año fin del filtro (0 = sin filtro)
         exclude_preprints: excluir preprints de los resultados
     """
-    yf = year_from if year_from > 0 else None
-    yt = year_to if year_to > 0 else None
-    results = search_module.search_papers(
-        query, count=n, year_from=yf, year_to=yt,
-        exclude_preprints=exclude_preprints,
-    )
-    clean = [
-        {k: v for k, v in r.items() if k in _SEARCH_FIELDS and v}
-        for r in results[:n]
-    ]
-    return json.dumps(clean, ensure_ascii=False, indent=2)
+    try:
+        yf = year_from if year_from > 0 else None
+        yt = year_to if year_to > 0 else None
+        results = search_module.search_papers(
+            query, count=n, year_from=yf, year_to=yt,
+            exclude_preprints=exclude_preprints,
+        )
+        clean = [
+            {k: v for k, v in r.items() if k in _SEARCH_FIELDS and v}
+            for r in results[:n]
+        ]
+        return json.dumps(clean, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -94,22 +96,25 @@ def add_from_doi(doi: str) -> str:
     Args:
         doi: DOI del paper (ej: 10.1016/j.rser.2015.08.042)
     """
-    result = search_module.add_from_doi(doi)
-    if "error" in result:
-        return json.dumps({"error": result["error"]}, ensure_ascii=False)
-    out = {
-        "key": result["key"],
-        "source": result["source"],
-        "confidence": result["confidence"],
-    }
-    if result.get("corrected_doi"):
-        out["corrected_doi"] = result["corrected_doi"]
-        out["original_doi"] = result["original_doi"]
-    if result.get("warning"):
-        out["warning"] = result["warning"]
-    if result.get("validation", {}).get("warnings"):
-        out["validation"] = result["validation"]
-    return json.dumps(out, ensure_ascii=False, indent=2)
+    try:
+        result = search_module.add_from_doi(doi)
+        if "error" in result:
+            return json.dumps({"error": result["error"]}, ensure_ascii=False)
+        out = {
+            "key": result["key"],
+            "source": result["source"],
+            "confidence": result["confidence"],
+        }
+        if result.get("corrected_doi"):
+            out["corrected_doi"] = result["corrected_doi"]
+            out["original_doi"] = result["original_doi"]
+        if result.get("warning"):
+            out["warning"] = result["warning"]
+        if result.get("validation", {}).get("warnings"):
+            out["validation"] = result["validation"]
+        return json.dumps(out, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -164,10 +169,13 @@ def find_related_papers(doi: str, n: int = 5,
         n: número de resultados (default 5)
         exclude_preprints: excluir preprints
     """
-    results = search_module.find_related_papers(
-        doi, count=n, exclude_preprints=exclude_preprints,
-    )
-    return json.dumps(results, ensure_ascii=False, indent=2)
+    try:
+        results = search_module.find_related_papers(
+            doi, count=n, exclude_preprints=exclude_preprints,
+        )
+        return json.dumps(results, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -228,36 +236,39 @@ def download_paper(doi: str, output_dir: str = "./papers") -> str:
         doi: DOI del paper
         output_dir: directorio donde guardar el PDF (default ./papers)
     """
-    oa_url = ""
-    s2_pdf_url = ""
-    arxiv_id = ""
+    try:
+        oa_url = ""
+        s2_pdf_url = ""
+        arxiv_id = ""
 
-    oa = openalex.fetch_by_doi(doi)
-    if oa:
-        oa_url = oa.get("oa_url", "")
-        raw = oa.get("raw", {})
-        arxiv_id = raw.get("ids", {}).get("arxiv", "")
+        oa = openalex.fetch_by_doi(doi)
+        if oa:
+            oa_url = oa.get("oa_url", "")
+            raw = oa.get("raw", {})
+            arxiv_id = raw.get("ids", {}).get("arxiv", "")
 
-    s2 = semanticscholar.fetch_by_doi(doi)
-    if s2:
-        s2_pdf_url = s2.get("oa_url", "")
-        if not arxiv_id:
-            arxiv_id = s2.get("arxiv_id", "")
+        s2 = semanticscholar.fetch_by_doi(doi)
+        if s2:
+            s2_pdf_url = s2.get("oa_url", "")
+            if not arxiv_id:
+                arxiv_id = s2.get("arxiv_id", "")
 
-    result = _download(doi, output_dir=output_dir, oa_url=oa_url,
-                       s2_pdf_url=s2_pdf_url, arxiv_id=arxiv_id)
-    if result["success"]:
-        size_mb = result.get("size", 0) / (1024 * 1024)
+        result = _download(doi, output_dir=output_dir, oa_url=oa_url,
+                           s2_pdf_url=s2_pdf_url, arxiv_id=arxiv_id)
+        if result["success"]:
+            size_mb = result.get("size", 0) / (1024 * 1024)
+            return json.dumps({
+                "success": True,
+                "path": result["path"],
+                "size_mb": round(size_mb, 1),
+                "source": result["source"],
+            }, ensure_ascii=False, indent=2)
         return json.dumps({
-            "success": True,
-            "path": result["path"],
-            "size_mb": round(size_mb, 1),
-            "source": result["source"],
-        }, ensure_ascii=False, indent=2)
-    return json.dumps({
-        "success": False,
-        "error": result.get("error", "No se encontró PDF gratuito."),
-    }, ensure_ascii=False)
+            "success": False,
+            "error": result.get("error", "No se encontró PDF gratuito."),
+        }, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
 def main():

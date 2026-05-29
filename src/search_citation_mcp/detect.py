@@ -58,7 +58,8 @@ def detect_input(text: str) -> dict:
         return {"type": "pmid", "value": text, "confidence": "medium"}
 
     isbn_clean = text.replace("-", "").replace(" ", "")
-    if ISBN13_RE.match(text) or ISBN10_RE.match(text):
+    isbn_text = re.sub(r'^(?:ISBN|isbn)[:\s]*', '', text)
+    if ISBN13_RE.match(isbn_text) or ISBN10_RE.match(isbn_text):
         return {"type": "isbn", "value": isbn_clean, "confidence": "medium"}
 
     return {"type": "title", "value": text, "confidence": "low"}
