@@ -1,6 +1,7 @@
 """Search & Citation MCP Server — 9 tools para búsqueda y citación IEEE."""
 
 import json
+import os
 import sys
 import logging
 from pathlib import Path
@@ -28,7 +29,11 @@ from .fixer import fix_bib_file
 from .apis import openalex, semanticscholar
 from .access.download import download_paper as _download
 
-mcp = FastMCP("search-citation")
+mcp = FastMCP(
+    "search-citation",
+    host=os.getenv("MCP_HOST", "127.0.0.1"),
+    port=int(os.getenv("MCP_PORT", "8000")),
+)
 
 # Campos que se incluyen en los resultados de búsqueda (eficiencia de tokens)
 _SEARCH_FIELDS = (
@@ -272,7 +277,31 @@ def download_paper(doi: str, output_dir: str = "./papers") -> str:
 
 
 def main():
-    mcp.run()
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Search & Citation MCP Server",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="Transport protocol (default: stdio for IDE integration)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("MCP_PORT", "8000")),
+        help="Port for HTTP/SSE transport (default: 8000)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.getenv("MCP_HOST", "127.0.0.1"),
+        help="Host for HTTP/SSE transport (default: 127.0.0.1)",
+    )
+    args, _ = parser.parse_known_args()
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":

@@ -1,77 +1,135 @@
 # Search & Citation MCP
 
-Academic search and IEEE citation engine as an MCP (Model Context Protocol) server. Designed to integrate with coding assistants like [opencode](https://opencode.ai).
+Academic search and IEEE citation engine as an MCP (Model Context Protocol) server. Designed to integrate with AI coding assistants (Claude Desktop, Cursor, opencode) and MCP daemons.
 
-**9 tools** that allow an LLM to search papers, validate metadata, generate BibTeX citations, download open-access PDFs, and maintain a `biblatex-ieee` compatible bibliography.
+**9 tools** that allow an LLM to search papers across 3 sources (OpenAlex + Crossref + Semantic Scholar), validate metadata, generate `biblatex-ieee` BibTeX citations, download open-access PDFs, and maintain a bibliography.
+
+[![PyPI version](https://img.shields.io/pypi/v/search-citation-mcp)](https://pypi.org/project/search-citation-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/search-citation-mcp)](https://pypi.org/project/search-citation-mcp/)
+[![License](https://img.shields.io/pypi/l/search-citation-mcp)](https://github.com/isaacwars/search-citation-mcp/blob/main/LICENSE)
 
 ## Install
 
 ```bash
-git clone https://github.com/isaacwars/search-citation-mcp.git
-cd search-citation-mcp
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+pip install search-citation-mcp
 ```
 
-## Configuration
+## Quick Start (uvx — zero install)
 
-Copy `.env.example` to `.env` and set optional keys:
+Add to your MCP client configuration:
 
-```bash
-cp .env.example .env
-```
+### Claude Desktop
 
-| Variable | Required | Description |
-|---|---|---|
-| `OPENALEX_API_KEY` | No | Improves OpenAlex rate limit |
-| `SEMANTIC_SCHOLAR_API_KEY` | No | Enables Semantic Scholar semantic search |
-| `UNPAYWALL_EMAIL` | No | Unpaywall API for PDF downloads |
-| `BIBLIOGRAPHY_PATH` | No | Path to `.bib` file (default: `./bibliografia.bib`) |
-| `EZPROXY_HOST` | No | Institutional EZProxy host |
-| `SCIHUB_ENABLED` | No | Sci-Hub as last-resort fallback (`1` to enable) |
-
-## MCP Usage
-
-Add to `opencode.json`:
+`claude_desktop_config.json`:
 
 ```json
 {
-  "mcp": {
+  "mcpServers": {
     "search-citation": {
-      "command": "/path/to/search-citation-mcp/.venv/bin/search-citation-mcp",
+      "command": "uvx",
+      "args": ["search-citation-mcp"]
+    }
+  }
+}
+```
+
+### Cursor / opencode
+
+`opencode.json` or Cursor MCP config:
+
+```json
+{
+  "mcpServers": {
+    "search-citation": {
+      "command": "uvx",
+      "args": ["search-citation-mcp"]
+    }
+  }
+}
+```
+
+### HTTP Mode (multi-client / daemon)
+
+Expose the server on the network for multiple simultaneous clients:
+
+```json
+{
+  "mcpServers": {
+    "search-citation": {
+      "command": "uvx",
+      "args": ["search-citation-mcp", "--transport", "streamable-http"],
       "env": {
-        "BIBLIOGRAPHY_PATH": "./bibliografia.bib"
+        "MCP_HOST": "0.0.0.0",
+        "MCP_PORT": "8000"
       }
     }
   }
 }
 ```
 
-### MCP Tools
+## Configuration (.env)
+
+Create a `.env` file (or set environment variables in your MCP client config):
+
+```bash
+# Optional: better rate limits and features
+OPENALEX_API_KEY=          # OpenAlex API key
+SEMANTIC_SCHOLAR_API_KEY=  # Enables semantic search (third source)
+CROSSREF_MAILTO=           # Polite pool email for Crossref
+UNPAYWALL_EMAIL=           # Enables Unpaywall PDF downloads
+
+# Optional: bibliography path
+BIBLIOGRAPHY_PATH=./bibliografia.bib
+
+# Optional: institutional proxy
+EZPROXY_HOST=bibliotecabuap.elogim.com
+
+# Optional: Sci-Hub fallback
+SCIHUB_ENABLED=1
+```
+
+## MCP Tools
 
 | Tool | Description |
 |---|---|
-| `search_papers` | Search papers via OpenAlex + Semantic Scholar |
-| `add_from_doi` | Add citation by DOI with Crossref → S2 → OA validation |
+| `search_papers` | Search papers via OpenAlex + Crossref + Semantic Scholar (3 sources in parallel) |
+| `add_from_doi` | Add citation by DOI with Crossref → S2 → OpenAlex validation pipeline |
 | `cite_paper` | Generate `.bib` entry without writing to file |
 | `add_to_bibliography` | Add manual entry to `.bib` (CFE, NOM, IEC, thesis, datasheets) |
 | `find_related_papers` | Find related papers via citation graph + semantic similarity |
 | `detect_input` | Detect whether text is a DOI, arXiv, PMID, ISBN, or URL |
 | `list_cached` | List recent cached searches |
-| `fix_bib` | Fix Title Case, protect acronyms (`{IEEE}`, `{CFE}`) |
+| `fix_bib` | Fix Title Case, protect acronyms (`{IEEE}`, `{CFE}`), add datasheet notes |
 | `download_paper` | Download PDF from free sources (OA → S2 → Unpaywall → arXiv) |
 
 ## CLI Usage
 
 ```bash
+# Install with pip
+pip install search-citation-mcp
+
+# Search
 search-citation search "photovoltaic" -n 5
+
+# Add citation by DOI
 search-citation add --doi 10.1016/j.rser.2015.08.042
+
+# Generate citation without writing
 search-citation cite --doi 10.1016/j.rser.2015.08.042
+
+# Find related papers
 search-citation related 10.1016/j.rser.2015.08.042 -n 5
+
+# Detect input type
 search-citation detect "10.1016/j.rser.2015.08.042"
+
+# Fix and validate .bib files
 search-citation fix-bib bibliografia.bib --dry-run
+
+# Download PDF
 search-citation download 10.1016/j.rser.2015.08.042 -o ./pdfs
+
+# View cached searches
 search-citation cache
 ```
 
@@ -81,17 +139,20 @@ search-citation cache
 
 Validated against IEEE schema with required and optional fields per type.
 
-## Tests
+## Development
 
 ```bash
+git clone https://github.com/isaacwars/search-citation-mcp.git
+cd search-citation-mcp
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
 pytest tests/ -v
 ```
 
-123 unit tests covering acronym protection, BibTeX validation, input detection, `.bib` generation, path safety, caching, and key collision resolution.
-
 ## Security
 
-- **stdio** transport — no TCP port, no network exposure
+- **stdio** transport by default — no TCP port, no network exposure
 - Path traversal blocked on all file operations
 - Credentials via environment variables only, never hardcoded
 - Zero personal data in source code
@@ -99,4 +160,4 @@ pytest tests/ -v
 
 ## License
 
-APACHE 2.0 
+Apache 2.0 with Commons Clause — see [LICENSE](LICENSE)
