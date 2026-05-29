@@ -18,9 +18,7 @@ pip install search-citation-mcp
 
 Add to your MCP client configuration:
 
-### Claude Desktop
-
-`claude_desktop_config.json`:
+### Any MCP Client (Claude Desktop, Cursor, Antigravity, Gemini CLI, opencode, Cline, Continue)
 
 ```json
 {
@@ -33,20 +31,17 @@ Add to your MCP client configuration:
 }
 ```
 
-### Cursor / opencode
+Config file locations:
 
-`opencode.json` or Cursor MCP config:
-
-```json
-{
-  "mcpServers": {
-    "search-citation": {
-      "command": "uvx",
-      "args": ["search-citation-mcp"]
-    }
-  }
-}
-```
+| Client | Config File |
+|---|---|
+| Claude Desktop | `claude_desktop_config.json` |
+| Cursor | `.cursor/mcp.json` |
+| Antigravity (Google) | `.antigravity/mcp.json` or `mcp.json` |
+| Gemini CLI | `~/.gemini/settings.json` |
+| opencode | `opencode.json` |
+| Cline (VSCode) | `.cline/mcp.json` |
+| Continue (VSCode/JetBrains) | `~/.continue/config.json` |
 
 ### HTTP Mode (multi-client / daemon)
 
@@ -69,23 +64,16 @@ Expose the server on the network for multiple simultaneous clients:
 
 ## Configuration (.env)
 
-Create a `.env` file (or set environment variables in your MCP client config):
+Optional — set environment variables in your MCP client config or create a `.env` file:
 
 ```bash
-# Optional: better rate limits and features
-OPENALEX_API_KEY=          # OpenAlex API key
-SEMANTIC_SCHOLAR_API_KEY=  # Enables semantic search (third source)
-CROSSREF_MAILTO=           # Polite pool email for Crossref
-UNPAYWALL_EMAIL=           # Enables Unpaywall PDF downloads
-
-# Optional: bibliography path
+OPENALEX_API_KEY=           # Optional: better rate limits
+SEMANTIC_SCHOLAR_API_KEY=   # Enables semantic search (third source)
+CROSSREF_MAILTO=            # Optional: Crossref polite pool
+UNPAYWALL_EMAIL=            # Enables Unpaywall PDF downloads
 BIBLIOGRAPHY_PATH=./bibliografia.bib
-
-# Optional: institutional proxy
-EZPROXY_HOST=bibliotecabuap.elogim.com
-
-# Optional: Sci-Hub fallback
-SCIHUB_ENABLED=1
+EZPROXY_HOST=               # Optional: institutional proxy
+SCIHUB_ENABLED=             # Optional: set to 1 to enable Sci-Hub fallback
 ```
 
 ## MCP Tools
