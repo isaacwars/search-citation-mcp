@@ -73,7 +73,8 @@ def fetch_by_doi(doi: str) -> dict:
 def _normalize_work(r: dict) -> dict:
     """Convierte un work de Crossref al formato estandarizado del engine."""
     authors = []
-    for a in r.get("author", []):
+    author_list = r.get("author") or r.get("editor") or []
+    for a in author_list:
         family = a.get("family", "")
         given = a.get("given", "")
         if family:
