@@ -74,7 +74,7 @@ def check_bib_entry(entry_text: str) -> tuple:
     if not entry_text.strip().startswith("@"):
         return Status.ERROR, ["La entrada debe empezar con @"]
 
-    has_type = re.match(r'@(\w+)', entry_text)
+    has_type = re.match(r'@([a-zA-Z]\w*)', entry_text.strip())
     if not has_type:
         return Status.ERROR, ["No se pudo detectar el entry type"]
 

@@ -5,6 +5,8 @@ import time
 
 import requests
 
+from .._doi import normalize_doi
+
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
 
 SEARCH_FIELDS = [
@@ -66,7 +68,7 @@ def search(query: str, count: int = 10, year_from: int = None, year_to: int = No
 
         out.append({
             "title": r.get("title", ""),
-            "doi": ext.get("DOI", ""),
+            "doi": normalize_doi(ext.get("DOI") or ""),
             "arxiv_id": ext.get("ArXiv", ""),
             "corpus_id": r.get("paperId", ""),
             "authors": authors,
@@ -158,7 +160,7 @@ def fetch_recommendations(paper_id: str, count: int = 5) -> list:
         pub_types = r.get("publicationTypes") or []
         out.append({
             "title": r.get("title", ""),
-            "doi": ext.get("DOI", ""),
+            "doi": normalize_doi(ext.get("DOI") or ""),
             "corpus_id": r.get("paperId", ""),
             "authors": authors,
             "year": r.get("year"),

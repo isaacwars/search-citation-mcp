@@ -9,7 +9,7 @@ _MONTH_MAP = {
     "jun": "6", "june": "6", "junio": "6",
     "jul": "7", "july": "7", "julio": "7",
     "aug": "8", "august": "8", "ago": "8", "agosto": "8",
-    "sep": "9", "september": "9", "septiembre": "9",
+    "sep": "9", "september": "9", "set": "9", "septiembre": "9",
     "oct": "10", "october": "10", "octubre": "10",
     "nov": "11", "november": "11", "noviembre": "11",
     "dec": "12", "december": "12", "dic": "12", "diciembre": "12",

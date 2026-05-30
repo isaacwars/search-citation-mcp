@@ -60,7 +60,7 @@ def fix_bib_file(bib_path: str, dry_run: bool = False) -> dict:
     output = "\n\n".join(output_entries) + "\n"
 
     if not dry_run:
-        backup = path.with_suffix(f".bib.{datetime.now().strftime('%Y%m%d%H%M%S')}.bak")
+        backup = path.with_suffix(f".bib.{datetime.now().strftime('%Y%m%d%H%M%S%f')}.bak")
         path.rename(backup)
         try:
             path.write_text(output, encoding="utf-8")
@@ -111,7 +111,7 @@ def _fix_title(entry: str) -> str:
         if not m:
             continue
         value = _extract_braced_content(entry, m.end())
-        if not value or not value.isupper():
+        if not value:
             continue
         clean = _to_title_case(value)
         brace_open = m.end() - 1
@@ -139,13 +139,21 @@ def _to_title_case(text: str) -> str:
 
 
 def _protect_acronyms(entry: str) -> str:
-    for acro in sorted(FIXED_ACRONYMS, key=len, reverse=True):
-        pattern = r'(?<!\{)' + re.escape(acro) + r'(?!\})'
-        entry = re.sub(
-            pattern,
-            lambda m: '{' + m.group(0) + '}',
-            entry
-        )
+    for field in ("title", "booktitle", "journal"):
+        m = re.search(rf'{field}\s*=\s*\{{', entry)
+        if not m:
+            continue
+        value = _extract_braced_content(entry, m.end())
+        if not value:
+            continue
+        protected = value
+        for acro in sorted(FIXED_ACRONYMS, key=len, reverse=True):
+            pattern = r'(?<![{}\w])' + re.escape(acro) + r'(?![{}\w])'
+            protected = re.sub(pattern, lambda m_: '{' + m_.group(0) + '}', protected)
+        if protected != value:
+            brace_open = m.end() - 1
+            brace_close = m.end() + len(value)
+            entry = entry[:brace_open + 1] + protected + entry[brace_close:]
     return entry
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from .apis import openalex, crossref, semanticscholar
 from .access import ezproxy
 from ._doi import normalize_doi
+from rapidfuzz import fuzz as rf
 
 CACHE_DIR = Path(
     os.getenv("SEARCH_CACHE_DIR", "/tmp/search_cache")
@@ -80,13 +81,19 @@ def _merge_results(api_results: list, source: str, seen_dois: set,
     """Dedup y enriquecer resultados de una API."""
     for r in api_results:
         doi = (r.get("doi") or "").lower()
+        title = (r.get("title") or "").lower().strip(".")
 
         if exclude_preprints and r.get("is_preprint"):
             continue
         if doi and doi in seen_dois:
             continue
+        if not doi:
+            if title and title in seen_dois:
+                continue
         if doi:
             seen_dois.add(doi)
+        if not doi and title:
+            seen_dois.add(title)
 
         r["source"] = source
 
@@ -105,6 +112,8 @@ def enrich_paper(doi: str) -> dict:
     """Enriquece metadata de un paper consultando múltiples fuentes.
 
     Prioridad de fuente: Crossref → Semantic Scholar → OpenAlex
+    Si OpenAlex tiene el paper pero Crossref no lo encontró por DOI,
+    re-busca Crossref por título para encontrar metadatos de mayor calidad.
     Retorna metadata de la mejor fuente disponible, sin mezclar.
     """
     cr_data = crossref.fetch_by_doi(doi)
@@ -121,6 +130,25 @@ def enrich_paper(doi: str) -> dict:
 
     oa_data = openalex.fetch_by_doi(doi)
     if oa_data:
+        title = oa_data.get("title", "")
+        author_list = oa_data.get("authors", [])
+        first_author = author_list[0].split()[-1] if author_list else ""
+        cr_search = crossref.search(f"{title} {first_author}", per_page=3)
+        for cr_result in cr_search:
+            cr_doi = cr_result.get("doi", "")
+            cr_title = (cr_result.get("title") or "").lower()
+            oa_title = (title or "").lower()
+            if cr_doi and cr_doi.lower() != doi.lower():
+                title_score = rf.token_sort_ratio(oa_title, cr_title)
+                if title_score >= 80:
+                    cr_full = crossref.fetch_by_doi(cr_doi)
+                    if cr_full:
+                        cr_full["_source"] = "crossref"
+                        cr_full["_confidence"] = "high"
+                        cr_full["_corrected_doi"] = cr_doi
+                        cr_full["_original_doi"] = doi
+                        return cr_full
+
         oa_data["_source"] = "openalex"
         oa_data["_confidence"] = "low"
         oa_data["_warning"] = (
@@ -162,7 +190,6 @@ def add_from_doi(doi: str, bib_path: str = "") -> dict:
             cr_title = (cr_result.get("title") or "").lower()
             oa_title = (title or "").lower()
             if cr_doi and cr_doi.lower() != doi.lower():
-                from rapidfuzz import fuzz as rf
                 title_score = rf.token_sort_ratio(oa_title, cr_title)
                 if title_score >= 80:
                     cr_full = crossref.fetch_by_doi(cr_doi)
@@ -185,19 +212,36 @@ def add_from_doi(doi: str, bib_path: str = "") -> dict:
                 if a.get("name", "").strip()
                 for name_parts in [a.get("name", "").split()]
             )
-            entry = from_fields("article", {
+            s2_pub_types = s2_data.get("publication_types") or s2_data.get("raw", {}).get("publicationTypes") or []
+            entry_type = "article"
+            if s2_pub_types:
+                if any("Conference" in t for t in s2_pub_types):
+                    entry_type = "inproceedings"
+                elif any("Book" in t for t in s2_pub_types):
+                    entry_type = "book"
+                elif any("Thesis" in t for t in s2_pub_types):
+                    entry_type = "phdthesis"
+
+            entry_data = {
                 "author": author_str,
                 "title": s2_data.get("title", "").strip().rstrip("."),
-                "journal": s2_data.get("journal", ""),
                 "year": str(s2_data.get("year", "")),
                 "doi": s2_data.get("doi", ""),
                 "url": s2_data.get("url", ""),
-            })
+            }
+            if entry_type == "inproceedings":
+                entry_data["booktitle"] = s2_data.get("journal", "")
+            else:
+                entry_data["journal"] = s2_data.get("journal", "")
+            entry = from_fields(entry_type, entry_data)
             key = _append(entry, bib_path)
             return _result(key, "semanticscholar", "medium", entry)
 
-        entry = from_doi(doi, oa_data["raw"])
-        key = _append(entry, bib_path)
+        entry = from_doi(doi, oa_data.get("raw", {}))
+        try:
+            key = _append(entry, bib_path)
+        except ValueError:
+            return {"error": f"No se pudo generar cita para {doi}. Metadatos insuficientes."}
         r = _result(key, "openalex", "low", entry)
         r["warning"] = (
             "Solo OpenAlex tiene este paper. Verificar metadata manualmente."

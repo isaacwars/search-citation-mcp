@@ -21,14 +21,16 @@ def _resolve_path(path_str: str = "") -> Path:
     if not path.is_absolute():
         path = Path.cwd() / path
     resolved = path.resolve()
-    if not is_explicit or (path_str and not os.path.isabs(path_str)):
-        cwd = Path.cwd().resolve()
-        try:
-            resolved.relative_to(cwd)
-        except ValueError:
-            raise ValueError(
-                f"Ruta de bibliografía '{resolved}' escapa del workspace"
-            )
+    is_env_or_default = bool(path_str is None or path_str == "")
+    if is_explicit and os.path.isabs(path_str):
+        return resolved
+    cwd = Path.cwd().resolve()
+    try:
+        resolved.relative_to(cwd)
+    except ValueError:
+        raise ValueError(
+            f"Ruta de bibliografía '{resolved}' escapa del workspace"
+        )
     return resolved
 
 
@@ -59,6 +61,7 @@ def _parse_bib(path: Path) -> list:
 def existing_dois(bib_path: str = "") -> set:
     """Devuelve set de DOIs ya presentes en el .bib."""
     if not HAS_BIBTEX:
+        logging.warning("bibtexparser no instalado — deduplicación de DOIs desactivada")
         return set()
     path = _resolve_path(bib_path)
     entries = _parse_bib(path)
@@ -68,6 +71,7 @@ def existing_dois(bib_path: str = "") -> set:
 def existing_keys(bib_path: str = "") -> set:
     """Devuelve set de citation keys ya presentes."""
     if not HAS_BIBTEX:
+        logging.warning("bibtexparser no instalado — detección de keys duplicadas desactivada")
         return set()
     path = _resolve_path(bib_path)
     entries = _parse_bib(path)
@@ -99,12 +103,15 @@ def append_entry(bib_entry: str, bib_path: str = "") -> str:
             if new_key in keys:
                 base = re.sub(r'[a-z]+$', '', new_key)
                 suffix = 0
+                max_suffix = 100
                 while f"{base}{chr(97 + suffix)}" in keys:
                     suffix += 1
                     if suffix > 25:
                         base = f"{base}a"
                         suffix = 0
-                new_key = f"{base}{chr(97 + suffix)}"
+                    if suffix > max_suffix:
+                        break
+                new_key = f"{base}{chr(97 + suffix) if suffix <= max_suffix else suffix}"
                 bib_entry = bib_entry.replace(f"{{{entry_key_match.group(1)},", f"{{{new_key},")
 
         path.parent.mkdir(parents=True, exist_ok=True)

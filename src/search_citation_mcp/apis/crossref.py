@@ -7,6 +7,8 @@ import time
 
 import requests
 
+from .._doi import normalize_doi
+
 BASE_URL = "https://api.crossref.org"
 
 EXCLUDED_TYPES = {
@@ -97,7 +99,7 @@ def _normalize_work(r: dict) -> dict:
     if container:
         journal = container[0]
 
-    doi = r.get("DOI", "")
+    doi = normalize_doi(r.get("DOI") or "")
 
     pub_raw = (
         r.get("published-print", {})
@@ -158,11 +160,15 @@ def _map_type(cr_type: str) -> str:
         "book-part": "incollection",
         "book-section": "incollection",
         "edited-book": "book",
+        "book-set": "book",
+        "book-series": "book",
         "monograph": "book",
         "reference-book": "book",
         "report": "techreport",
+        "report-series": "techreport",
         "dissertation": "phdthesis",
         "standard": "manual",
+        "standard-series": "manual",
         "dataset": "misc",
         "posted-content": "misc",
         "proceedings": "inproceedings",

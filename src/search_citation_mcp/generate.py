@@ -13,7 +13,7 @@ SCHEMA = {
     },
     "inproceedings": {
         "required": ["author", "title", "booktitle", "year"],
-        "optional": ["pages", "address", "month", "doi", "url", "note", "organization"],
+        "optional": ["pages", "address", "month", "doi", "url", "note", "publisher", "organization"],
     },
     "book": {
         "required": ["author", "title", "publisher", "year"],
@@ -65,9 +65,9 @@ _OA_TYPE_MAP = {
 
 def _make_key(data: dict, entry_type: str) -> str:
     author = data.get("author", "")
-    year = str(data.get("year", datetime.now().year))
+    year = str(data.get("year") or "xxxx")
     if author:
-        first_author = re.sub(r'[^a-zA-Z0-9]', '', author.split(",")[0].split()[-1].lower())
+        first_author = re.sub(r'[^a-zA-Z0-9\u00c0-\u024f]', '', author.split(",")[0].split()[-1]).lower()
     else:
         first_author = entry_type
     return f"{first_author}{year}"

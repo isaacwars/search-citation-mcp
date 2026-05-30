@@ -115,7 +115,7 @@ def _write_file(dest: Path, content: bytes) -> Path:
     """Escribe atómicamente: temp file + rename para evitar archivos truncados."""
     fd, tmp_path = tempfile.mkstemp(dir=dest.parent, prefix=".download_", suffix=".tmp")
     try:
-        with os.fdopen(fd, "wb") as f:
+        with open(fd, "wb") as f:
             f.write(content)
         tmp = Path(tmp_path)
         tmp.replace(dest)
@@ -155,7 +155,7 @@ def _try_download(url: str, dest: Path, source: str,
         content = resp.content
         content_type = resp.headers.get("Content-Type", "").lower()
 
-        if content[:5] == b"%PDF-":
+        if content[:5] == b"%PDF-" or content[3:8] == b"%PDF-":
             if len(content) > MAX_PDF_SIZE:
                 return {"success": False, "error": f"PDF excede límite de {MAX_PDF_SIZE // (1024*1024)} MB"}
             _write_file(dest, content)
@@ -184,7 +184,7 @@ def _try_download(url: str, dest: Path, source: str,
                     },
                     impersonate=IMPERSONATE_BROWSER,
                 )
-                if resp2.status_code == 200 and resp2.content[:5] == b"%PDF-":
+                if resp2.status_code == 200 and (resp2.content[:5] == b"%PDF-" or resp2.content[3:8] == b"%PDF-"):
                     if len(resp2.content) > MAX_PDF_SIZE:
                         return {"success": False, "error": f"PDF excede límite de {MAX_PDF_SIZE // (1024*1024)} MB"}
                     _write_file(dest, resp2.content)
@@ -265,7 +265,9 @@ def _try_scihub(doi: str, dest: Path,
                     impersonate=IMPERSONATE_BROWSER,
                 )
                 if (pdf_resp.status_code == 200
-                        and pdf_resp.content[:5] == b"%PDF-"):
+                        and (pdf_resp.content[:5] == b"%PDF-" or pdf_resp.content[3:8] == b"%PDF-")):
+                    if len(pdf_resp.content) > MAX_PDF_SIZE:
+                        continue
                     _write_file(dest, pdf_resp.content)
                     return {
                         "success": True, "path": str(dest),
