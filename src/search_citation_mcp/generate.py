@@ -208,6 +208,12 @@ def from_crossref_data(cr_data: dict) -> str:
             data["edition"] = str(cr_data["edition"])
         if cr_data.get("address"):
             data["address"] = cr_data["address"]
+    elif entry_type == "techreport":
+        data["institution"] = cr_data.get("publisher", "")
+        if cr_data.get("number"):
+            data["number"] = str(cr_data["number"])
+    elif entry_type in ("mastersthesis", "phdthesis"):
+        data["school"] = cr_data.get("publisher", "")
     elif entry_type in ("incollection",):
         data["booktitle"] = cr_data.get("journal", "")
         data["publisher"] = cr_data.get("publisher", "")
