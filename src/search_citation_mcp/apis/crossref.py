@@ -156,6 +156,7 @@ def _map_type(cr_type: str) -> str:
         "book-chapter": "incollection",
         "book-part": "incollection",
         "book-section": "incollection",
+        "edited-book": "book",
         "monograph": "book",
         "reference-book": "book",
         "report": "techreport",

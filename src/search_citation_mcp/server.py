@@ -123,7 +123,7 @@ def add_from_doi(doi: str) -> str:
 
 
 @mcp.tool()
-def cite_paper(type: str, **campos) -> str:
+def cite_paper(type: str, campos: dict) -> str:
     """Genera una entrada .bib validada sin escribirla al archivo.
 
     Usar para fuentes SIN DOI: CFE, NOM, IEC, leyes, tesis, datasheets.
@@ -131,7 +131,7 @@ def cite_paper(type: str, **campos) -> str:
     Args:
         type: article | inproceedings | book | techreport | mastersthesis |
               phdthesis | manual | misc | online | incollection
-        **campos: author, title, journal/booktitle, year, doi, url, etc.
+        campos: dict con author, title, journal/booktitle, year, doi, url, etc.
     """
     try:
         entry = from_fields(type, campos)
@@ -141,14 +141,14 @@ def cite_paper(type: str, **campos) -> str:
 
 
 @mcp.tool()
-def add_to_bibliography(type: str, **campos) -> str:
+def add_to_bibliography(type: str, campos: dict) -> str:
     """Genera entrada .bib validada y la agrega a bibliografia.bib.
 
     Para fuentes SIN DOI: CFE, NOM, IEC, leyes, tesis, datasheets.
 
     Args:
         type: entry type BibTeX
-        **campos: author, title, journal/booktitle, year, etc.
+        campos: dict con author, title, journal/booktitle, year, etc.
     """
     try:
         entry = from_fields(type, campos)
