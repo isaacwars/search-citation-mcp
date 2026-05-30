@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "search-citation-mcp"
-version = "1.1.4"
+version = "1.1.5"
 authors = [{ name = "isaacwars", email = "isaacwars@users.noreply.github.com" }]
 description = "Academic paper search and IEEE citation engine — MCP server with 9 tools"
 readme = "README.md"

@@ -113,6 +113,8 @@ def from_doi(doi: str, openalex_data: dict) -> str:
         loc = openalex_data.get("primary_location", {}) or {}
         src = loc.get("source", {}) or {}
         data["booktitle"] = src.get("display_name", "")
+    elif entry_type == "book":
+        data["publisher"] = openalex_data.get("publisher", "")
     elif entry_type in ("mastersthesis", "phdthesis"):
         loc = openalex_data.get("primary_location", {}) or {}
         src = loc.get("source", {}) or {}
@@ -130,7 +132,8 @@ def from_doi(doi: str, openalex_data: dict) -> str:
         if len(parts) >= 2:
             data["month"] = abbr_month(parts[1])
 
-    data["doi"] = doi
+    if "doi" in SCHEMA.get(entry_type, {}).get("optional", []) or "doi" in SCHEMA.get(entry_type, {}).get("required", []):
+        data["doi"] = doi
 
     return from_fields(entry_type, data)
 
