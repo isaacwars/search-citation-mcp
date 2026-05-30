@@ -200,6 +200,14 @@ def from_crossref_data(cr_data: dict) -> str:
         pages = cr_data.get("pages", "")
         if pages:
             data["pages"] = pages.replace("-", "--") if "--" not in pages else pages
+    elif entry_type == "book":
+        data["publisher"] = cr_data.get("publisher", "")
+        if cr_data.get("isbn"):
+            data["isbn"] = cr_data["isbn"]
+        if cr_data.get("edition"):
+            data["edition"] = str(cr_data["edition"])
+        if cr_data.get("address"):
+            data["address"] = cr_data["address"]
     elif entry_type in ("incollection",):
         data["booktitle"] = cr_data.get("journal", "")
         data["publisher"] = cr_data.get("publisher", "")
@@ -213,9 +221,6 @@ def from_crossref_data(cr_data: dict) -> str:
         data["doi"] = cr_data["doi"]
     if cr_data.get("url"):
         data["url"] = cr_data["url"]
-    if cr_data.get("publisher"):
-        if entry_type not in ("incollection",) or "publisher" not in data:
-            data["publisher"] = cr_data["publisher"]
 
     pub_date = cr_data.get("publication_date", "")
     if pub_date and len(pub_date) >= 7:
