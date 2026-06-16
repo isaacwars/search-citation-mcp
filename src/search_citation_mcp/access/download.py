@@ -8,6 +8,7 @@ Cadena de descarga free-first:
 5. Sci-Hub (opcional, configurable via SCIHUB_ENABLED)
 """
 
+import ipaddress
 import logging
 import os
 import re
@@ -26,6 +27,17 @@ SCIHUB_MIRRORS = os.getenv(
 
 IMPERSONATE_BROWSER = os.getenv("IMPERSONATE_BROWSER", "chrome131")
 MAX_PDF_SIZE = 100 * 1024 * 1024  # 100 MB
+
+_BLOCKED_NETS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -49,11 +61,23 @@ def _safe_output_path(output_dir: str, basename: str) -> Path:
 
 
 def _is_allowed_url(url: str) -> bool:
-    """Rechaza URLs con esquemas no esperados."""
+    """Rechaza URLs con esquemas no esperados o que apunten a redes internas."""
     allowed = {"http", "https", ""}
     scheme = urlparse(url).scheme or ""
     if scheme not in allowed:
         return False
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return True
+    if parsed.hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return False
+    try:
+        addr = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        return True
+    for net in _BLOCKED_NETS:
+        if addr in net:
+            return False
     return True
 
 

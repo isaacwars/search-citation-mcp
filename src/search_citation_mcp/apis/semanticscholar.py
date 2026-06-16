@@ -6,6 +6,10 @@ import time
 import requests
 
 from .._doi import normalize_doi
+from .outcomes import (
+    SourceOutcome, success, empty, timeout, http_error, network_error,
+    with_circuit,
+)
 
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
 
@@ -27,8 +31,14 @@ def _headers():
     return h
 
 
-def search(query: str, count: int = 10, year_from: int = None, year_to: int = None) -> list:
+def search(query: str, count: int = 10, year_from: int = None,
+           year_to: int = None) -> SourceOutcome:
     """Busca papers en Semantic Scholar."""
+    return with_circuit("s2", _search_impl, query, count, year_from, year_to)
+
+
+def _search_impl(query: str, count: int = 10, year_from: int = None,
+                 year_to: int = None) -> SourceOutcome:
     params = {
         "query": query,
         "limit": min(count, 100),
@@ -48,12 +58,16 @@ def search(query: str, count: int = 10, year_from: int = None, year_to: int = No
             headers=_headers(),
             timeout=15,
         )
+    except requests.exceptions.Timeout:
+        return timeout("s2")
     except requests.RequestException:
-        return []
+        return network_error("s2")
     if resp.status_code != 200:
-        return []
+        return http_error("s2", resp.status_code)
 
     data = resp.json().get("data", [])
+    if not data:
+        return empty("s2")
     out = []
     for r in data:
         ext = r.get("externalIds", {}) or {}
@@ -86,11 +100,15 @@ def search(query: str, count: int = 10, year_from: int = None, year_to: int = No
         })
 
     time.sleep(0.15)
-    return out
+    return success("s2", out)
 
 
-def fetch_by_doi(doi: str) -> dict:
+def fetch_by_doi(doi: str) -> SourceOutcome:
     """Obtiene metadata completa de un paper por DOI desde S2."""
+    return with_circuit("s2", _fetch_by_doi_impl, doi)
+
+
+def _fetch_by_doi_impl(doi: str) -> SourceOutcome:
     try:
         resp = requests.get(
             f"{BASE_URL}/paper/DOI:{doi}",
@@ -98,10 +116,12 @@ def fetch_by_doi(doi: str) -> dict:
             headers=_headers(),
             timeout=15,
         )
+    except requests.exceptions.Timeout:
+        return timeout("s2")
     except requests.RequestException:
-        return {}
+        return network_error("s2")
     if resp.status_code != 200:
-        return {}
+        return http_error("s2", resp.status_code)
 
     r = resp.json()
     ext = r.get("externalIds", {}) or {}
@@ -114,7 +134,7 @@ def fetch_by_doi(doi: str) -> dict:
     venue = r.get("publicationVenue") or {}
     journal = venue.get("name", "")
 
-    return {
+    return success("s2", {
         "title": r.get("title", ""),
         "doi": ext.get("DOI", ""),
         "arxiv_id": ext.get("ArXiv", ""),
@@ -132,11 +152,11 @@ def fetch_by_doi(doi: str) -> dict:
         "is_preprint": is_preprint,
         "publication_date": r.get("publicationDate", ""),
         "raw": r,
-    }
+    })
 
 
 def fetch_recommendations(paper_id: str, count: int = 5) -> list:
-    """Obtiene papers recomendados relacionados por similitud semántica."""
+    """Obtiene papers recomendados relacionados por similitud semantica."""
     try:
         resp = requests.get(
             f"{BASE_URL}/paper/{paper_id}/recommendations",

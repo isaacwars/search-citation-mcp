@@ -1,13 +1,31 @@
 """Corrector de archivos .bib: Title Case, protección de siglas, datasheets."""
 
 import re
-import tempfile
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+
+import requests
+
+log = logging.getLogger("search-citation")
 
 from .protect import ACRONYMS as FIXED_ACRONYMS
 from .bibliography import _split_entries
 from .style import abbr_month
+
+TECHNICAL_UNITS = {
+    "kw", "kwh", "kwp", "mw", "mwh", "mwp", "gw", "tw",
+    "mv", "mvp", "ma", "mah", "mvdc", "khz", "mhz", "ghz", "thz",
+    "p-n", "i-v", "v-i", "p-v", "p-q", "v-f",
+    "on-grid", "off-grid", "sic", "gan", "si-mosfet",
+    "wi-fi", "li-ion", "ni-cd", "ni-mh", "pb-acid",
+    "hcl", "h2o", "co2", "nox", "sox", "sio2", "tio2",
+}
+COMPOUND_WORDS = {
+    "feedback", "feedforward", "feed-in", "stand-alone",
+    "phase-locked", "zero-crossing", "self-consumption",
+}
 
 CORPORATE_NAMES = {
     "Comisión Federal de Electricidad", "Gobierno de México",
@@ -59,6 +77,8 @@ def fix_bib_file(bib_path: str, dry_run: bool = False) -> dict:
 
     output = "\n\n".join(output_entries) + "\n"
 
+    url_warnings = _check_urls(output_entries)
+
     if not dry_run:
         backup = path.with_suffix(f".bib.{datetime.now().strftime('%Y%m%d%H%M%S%f')}.bak")
         path.rename(backup)
@@ -68,7 +88,7 @@ def fix_bib_file(bib_path: str, dry_run: bool = False) -> dict:
             backup.rename(path)
             raise
 
-    return {"fixed": fixed, "unchanged": unchanged, "errors": errors, "output": output, "backup": str(backup) if not dry_run else None}
+    return {"fixed": fixed, "unchanged": unchanged, "errors": errors, "output": output, "backup": str(backup) if not dry_run else None, "url_warnings": url_warnings}
 
 
 def _fix_entry(entry: str) -> str:
@@ -77,6 +97,24 @@ def _fix_entry(entry: str) -> str:
     entry = _protect_acronyms(entry)
     entry = _fix_corporate_authors(entry)
     entry = _add_datasheet_note(entry)
+    entry = _fix_author_periods(entry)
+    return entry
+
+
+def _fix_author_periods(entry: str) -> str:
+    """Elimina puntos sueltos en nombres de autor que no son iniciales reales.
+
+    Crossref puede devolver 'Dhimish, Mahmoud.' con punto suelto.
+    Solo se quita el punto si el token tiene >1 letra (no es inicial real como 'J.').
+    """
+    def _clean(m):
+        name = m.group(1)
+        sep = m.group(2)
+        if len(name) > 1:
+            return name + sep
+        return name + '.' + sep
+    entry = re.sub(r'([A-Z][a-z]+)(\.)(\s+and\s+|\})', _clean, entry)
+    entry = re.sub(r'([A-Z][a-z]+)(\.)(\s*,)', _clean, entry)
     return entry
 
 
@@ -125,12 +163,20 @@ def _to_title_case(text: str) -> str:
                    "at", "to", "by", "in", "of", "with", "de", "la", "el", "los",
                    "las", "del", "en", "un", "una", "y", "e", "o", "que", "por",
                    "para", "con", "sin", "su", "al", "se", "no", "es"}
+    if len(text) > 10000:
+        text = text[:10000]
     words = re.findall(r'\S+', text)
     result = []
     for i, w in enumerate(words):
         stripped = w.strip('{}')
-        if stripped.upper() in FIXED_ACRONYMS:
+        if not stripped:
+            result.append(w)
+        elif stripped.upper() in FIXED_ACRONYMS:
             result.append(w.replace(stripped, stripped.upper()))
+        elif stripped.lower() in TECHNICAL_UNITS:
+            result.append(w.lower())
+        elif stripped.lower() in COMPOUND_WORDS:
+            result.append(w.lower())
         elif i == 0 or i == len(words) - 1 or w.lower().strip('{}') not in small_words:
             result.append(w[0].upper() + w[1:].lower() if len(w) > 1 else w.upper())
         else:
@@ -149,7 +195,11 @@ def _protect_acronyms(entry: str) -> str:
         protected = value
         for acro in sorted(FIXED_ACRONYMS, key=len, reverse=True):
             pattern = r'(?<![{}\w])' + re.escape(acro) + r'(?![{}\w])'
-            protected = re.sub(pattern, lambda m_: '{' + m_.group(0) + '}', protected)
+            protected = re.sub(
+                pattern,
+                lambda m_: '{' + m_.group(0).upper() + '}',
+                protected,
+            )
         if protected != value:
             brace_open = m.end() - 1
             brace_close = m.end() + len(value)
@@ -204,3 +254,48 @@ def _add_datasheet_note(entry: str) -> str:
         )
 
     return entry
+
+
+def _check_urls(entries: list) -> list:
+    """Verifica que las URLs en las entradas .bib respondan correctamente.
+
+    Hace HEAD requests en paralelo. Reporta 404, 502, 403. No modifica, solo advierte.
+    Retorna lista de warnings por URL rota. Máximo 50 URLs, timeout global 30s.
+    """
+    url_pattern = re.compile(r'\burl\s*=\s*\{([^}]+)\}')
+    all_urls = []
+    for entry in entries:
+        for m in url_pattern.finditer(entry):
+            url = m.group(1)
+            if url.startswith(("http://", "https://")):
+                all_urls.append(url)
+
+    if not all_urls:
+        return []
+
+    all_urls = all_urls[:50]
+    warnings = []
+
+    def _check_one(url):
+        try:
+            resp = requests.head(url, timeout=10, allow_redirects=True,
+                                 headers={"User-Agent": "CitationEngine/1.0"})
+            if resp.status_code in (404, 502, 503):
+                return (url, f"{resp.status_code} {resp.reason}")
+            elif resp.status_code == 403:
+                return (url, f"{resp.status_code} Forbidden (acceso restringido)")
+            return None
+        except requests.RequestException as e:
+            return (url, f"Error de conexión: {e}")
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_url = {executor.submit(_check_one, url): url for url in all_urls}
+        for future, url in future_to_url.items():
+            try:
+                result = future.result(timeout=30)
+                if result:
+                    warnings.append(result)
+            except Exception as e:
+                log.warning(f"Error checking URL {url}: {e}")
+
+    return warnings

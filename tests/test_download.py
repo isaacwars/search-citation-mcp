@@ -77,6 +77,24 @@ class TestIsAllowedURL:
     def test_javascript_denied(self):
         assert _is_allowed_url("javascript:alert(1)") is False
 
+    def test_loopback_rejected(self):
+        assert _is_allowed_url("http://127.0.0.1/private") is False
+        assert _is_allowed_url("http://127.0.0.1:8080/data") is False
+
+    def test_private_network_rejected(self):
+        assert _is_allowed_url("http://10.0.0.1/admin") is False
+        assert _is_allowed_url("http://192.168.1.1/config") is False
+        assert _is_allowed_url("http://172.16.0.5/secret") is False
+
+    def test_link_local_rejected(self):
+        assert _is_allowed_url("http://169.254.1.1/meta") is False
+
+    def test_localhost_rejected(self):
+        assert _is_allowed_url("http://localhost:3000/api") is False
+
+    def test_ipv6_loopback_rejected(self):
+        assert _is_allowed_url("http://[::1]:8080/data") is False
+
 
 class TestExtractScihubPDF:
     def test_iframe_src(self):

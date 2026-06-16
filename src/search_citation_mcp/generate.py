@@ -1,7 +1,6 @@
 """Generación de entradas BibTeX con validación contra SCHEMA IEEE."""
 
 import re
-from datetime import datetime
 
 from .protect import protect_fields
 from .style import abbr_month
@@ -9,11 +8,11 @@ from .style import abbr_month
 SCHEMA = {
     "article": {
         "required": ["author", "title", "journal", "year"],
-        "optional": ["volume", "number", "pages", "month", "doi", "url", "note", "issn", "publisher"],
+        "optional": ["volume", "number", "pages", "eid", "month", "doi", "url", "note", "issn", "publisher"],
     },
     "inproceedings": {
         "required": ["author", "title", "booktitle", "year"],
-        "optional": ["pages", "address", "month", "doi", "url", "note", "publisher", "organization"],
+        "optional": ["pages", "eid", "address", "month", "doi", "url", "note", "publisher", "organization"],
     },
     "book": {
         "required": ["author", "title", "publisher", "year"],
@@ -21,7 +20,7 @@ SCHEMA = {
     },
     "incollection": {
         "required": ["author", "title", "booktitle", "publisher", "year"],
-        "optional": ["editor", "address", "pages", "month", "isbn", "note", "doi", "url"],
+        "optional": ["editor", "address", "pages", "eid", "month", "isbn", "note", "doi", "url"],
     },
     "techreport": {
         "required": ["author", "title", "institution", "year"],
@@ -61,6 +60,27 @@ _OA_TYPE_MAP = {
     "dataset": "misc",
     "other": "misc",
 }
+
+
+def _normalize_pages(pages: str) -> tuple:
+    """Si pages es un solo número grande, retorna eid en vez de pages.
+
+    MDPI y otros journals usan article numbers (ej: 103637).
+    Si es un solo número > 100 sin guion, va a eid.
+    """
+    if not pages:
+        return {}, {}
+    if "--" in pages or "-" in pages:
+        normalized = pages.replace("-", "--") if "--" not in pages else pages
+        return {"pages": normalized}, {}
+    numeric = pages.strip()
+    try:
+        num = int(numeric)
+        if num > 100:
+            return {}, {"eid": str(num)}
+    except ValueError:
+        pass
+    return {"pages": pages}, {}
 
 
 def _make_key(data: dict, entry_type: str) -> str:
@@ -108,11 +128,28 @@ def from_doi(doi: str, openalex_data: dict) -> str:
         if biblio.get("issue"):
             data["number"] = biblio["issue"]
         if biblio.get("first_page") and biblio.get("last_page"):
-            data["pages"] = f"{biblio['first_page']}--{biblio['last_page']}"
+            pages_str = f"{biblio['first_page']}--{biblio['last_page']}"
+            pages_fields, eid_fields = _normalize_pages(pages_str)
+            data.update(pages_fields)
+            data.update(eid_fields)
+        elif biblio.get("first_page"):
+            pages_fields, eid_fields = _normalize_pages(str(biblio["first_page"]))
+            data.update(pages_fields)
+            data.update(eid_fields)
     elif entry_type == "inproceedings":
         loc = openalex_data.get("primary_location", {}) or {}
         src = loc.get("source", {}) or {}
         data["booktitle"] = src.get("display_name", "")
+        biblio = openalex_data.get("biblio", {}) or {}
+        if biblio.get("first_page") and biblio.get("last_page"):
+            pages_str = f"{biblio['first_page']}--{biblio['last_page']}"
+            pages_fields, eid_fields = _normalize_pages(pages_str)
+            data.update(pages_fields)
+            data.update(eid_fields)
+        elif biblio.get("first_page"):
+            pages_fields, eid_fields = _normalize_pages(str(biblio["first_page"]))
+            data.update(pages_fields)
+            data.update(eid_fields)
     elif entry_type == "book":
         data["publisher"] = openalex_data.get("publisher", "")
     elif entry_type in ("mastersthesis", "phdthesis"):
@@ -194,15 +231,17 @@ def from_crossref_data(cr_data: dict) -> str:
         if cr_data.get("issue"):
             data["number"] = str(cr_data["issue"])
         pages = cr_data.get("pages", "")
-        if pages:
-            data["pages"] = pages.replace("-", "--") if "--" not in pages else pages
+        pages_fields, eid_fields = _normalize_pages(pages)
+        data.update(pages_fields)
+        data.update(eid_fields)
         if cr_data.get("issn"):
             data["issn"] = cr_data["issn"]
     elif entry_type == "inproceedings":
         data["booktitle"] = cr_data.get("journal", "")
         pages = cr_data.get("pages", "")
-        if pages:
-            data["pages"] = pages.replace("-", "--") if "--" not in pages else pages
+        pages_fields, eid_fields = _normalize_pages(pages)
+        data.update(pages_fields)
+        data.update(eid_fields)
     elif entry_type == "book":
         data["publisher"] = cr_data.get("publisher", "")
         if cr_data.get("isbn"):
@@ -221,8 +260,9 @@ def from_crossref_data(cr_data: dict) -> str:
         data["booktitle"] = cr_data.get("journal", "")
         data["publisher"] = cr_data.get("publisher", "")
         pages = cr_data.get("pages", "")
-        if pages:
-            data["pages"] = pages.replace("-", "--") if "--" not in pages else pages
+        pages_fields, eid_fields = _normalize_pages(pages)
+        data.update(pages_fields)
+        data.update(eid_fields)
 
     if cr_data.get("year"):
         data["year"] = str(cr_data["year"])

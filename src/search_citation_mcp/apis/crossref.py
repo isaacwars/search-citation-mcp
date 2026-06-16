@@ -8,6 +8,10 @@ import time
 import requests
 
 from .._doi import normalize_doi
+from .outcomes import (
+    SourceOutcome, success, empty, timeout, http_error, network_error,
+    rate_limited, with_circuit,
+)
 
 BASE_URL = "https://api.crossref.org"
 
@@ -21,8 +25,14 @@ def _get_mailto():
     return os.getenv("CROSSREF_MAILTO", "")
 
 
-def search(query: str, per_page: int = 10, year_from: int = None, year_to: int = None) -> list:
+def search(query: str, per_page: int = 10, year_from: int = None,
+           year_to: int = None) -> SourceOutcome:
     """Busca works en Crossref con filtro de fecha opcional."""
+    return with_circuit("crossref", _search_impl, query, per_page, year_from, year_to)
+
+
+def _search_impl(query: str, per_page: int = 10, year_from: int = None,
+                 year_to: int = None) -> SourceOutcome:
     encoded = urllib.parse.quote(query)
     url = f"{BASE_URL}/works?query={encoded}&rows={per_page}&sort=relevance"
     params = {"mailto": _get_mailto()}
@@ -37,13 +47,22 @@ def search(query: str, per_page: int = 10, year_from: int = None, year_to: int =
 
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=15)
-    except requests.RequestException:
-        return []
+    except requests.exceptions.Timeout:
+        return timeout("crossref", "Request timed out after 15s")
+    except requests.exceptions.ConnectionError as e:
+        return network_error("crossref", str(e))
+    except requests.RequestException as e:
+        return network_error("crossref", str(e))
+    if resp.status_code == 429:
+        retry = resp.headers.get("Retry-After", "")
+        return rate_limited("crossref", int(retry) if retry and retry.isdigit() else None)
     if resp.status_code != 200:
-        return []
+        return http_error("crossref", resp.status_code)
 
     data = resp.json()
     items = data.get("message", {}).get("items", [])
+    if not items:
+        return empty("crossref")
     out = []
     for r in items:
         cr_type = r.get("type", "")
@@ -52,24 +71,30 @@ def search(query: str, per_page: int = 10, year_from: int = None, year_to: int =
         out.append(_normalize_work(r))
 
     time.sleep(0.1)
-    return out
+    return success("crossref", out)
 
 
-def fetch_by_doi(doi: str) -> dict:
+def fetch_by_doi(doi: str) -> SourceOutcome:
     """Obtiene metadata completa de un work por DOI desde Crossref."""
+    return with_circuit("crossref", _fetch_by_doi_impl, doi)
+
+
+def _fetch_by_doi_impl(doi: str) -> SourceOutcome:
     url = f"{BASE_URL}/works/{urllib.parse.quote(doi)}"
     params = {"mailto": _get_mailto()}
     headers = {"User-Agent": f"CitationEngine/1.0 (mailto:{_get_mailto()})"}
 
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=15)
+    except requests.exceptions.Timeout:
+        return timeout("crossref")
     except requests.RequestException:
-        return {}
+        return network_error("crossref")
     if resp.status_code != 200:
-        return {}
+        return http_error("crossref", resp.status_code)
 
     r = resp.json().get("message", {})
-    return _normalize_work(r)
+    return success("crossref", _normalize_work(r))
 
 
 def _normalize_work(r: dict) -> dict:
@@ -126,6 +151,9 @@ def _normalize_work(r: dict) -> dict:
         resource = r.get("resource", {}).get("primary", {})
         landing_url = resource.get("URL", "")
     if not landing_url and doi:
+        landing_url = f"https://doi.org/{doi}"
+
+    if "xplorestaging" in landing_url and doi:
         landing_url = f"https://doi.org/{doi}"
 
     return {
